@@ -2,15 +2,19 @@
 .env
 .env.*
 !.env.example
-config/config.yaml           # the ACTIVE profile is machine-local; profiles/ is tracked
-keys/                        # lab-only SSH keypairs, never commit
+# The ACTIVE profile is machine-local; config/profiles/ is tracked.
+/config/config.yaml
+# Lab-only SSH keypairs, never commit.
+keys/
 *.pem
 *.key
 
 # ---- Run artifacts ----
-runs/*
-!runs/sample-run/            # keep the one committed example
-!runs/.gitkeep
+# Ignore everything in runs/ ...
+/runs/*
+# ... except the committed example and the dir placeholder.
+!/runs/sample-run/
+!/runs/.gitkeep
 
 # ---- Python ----
 __pycache__/
@@ -19,12 +23,13 @@ __pycache__/
 .eggs/
 .venv/
 venv/
-.env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
+build/
+dist/
 
 # ---- Node ----
 node_modules/

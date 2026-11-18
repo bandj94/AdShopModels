@@ -77,7 +77,7 @@ class SafetyGuard:
     # ----------------------------------------------------------------- public API
 
     @classmethod
-    def from_config(cls, cfg) -> "SafetyGuard":  # cfg: orchestrator.config.LabConfig
+    def from_config(cls, cfg) -> SafetyGuard:  # cfg: orchestrator.config.LabConfig
         known = {
             cfg.attacker.container_name,
             cfg.target.container_name,

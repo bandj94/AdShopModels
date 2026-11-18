@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from orchestrator.safety import Decision, SafetyGuard
@@ -97,5 +99,5 @@ def test_bare_filename_not_treated_as_host(guard: SafetyGuard) -> None:
 
 def test_decision_is_frozen() -> None:
     d = Decision(True, "ok")
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         d.permitted = False  # type: ignore[misc]

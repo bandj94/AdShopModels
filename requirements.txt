@@ -1,0 +1,3 @@
+# Runtime dependencies for the orchestrator (host-side).
+pyyaml>=6
+requests>=2.31
