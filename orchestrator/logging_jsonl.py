@@ -7,17 +7,17 @@ Navigator layer are *derived* from this; the JSONL alone is enough to replay a r
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 
 def utcnow_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def new_run_id(model: str, target: str) -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
     safe_model = model.replace("/", "-").replace(":", "-")
     return f"{stamp}_{safe_model}_{target}"
 
@@ -30,9 +30,16 @@ class JSONLLogger:
         self._transcript = self.run_dir / "transcript.jsonl"
 
     def write_meta(self, meta: dict[str, Any]) -> None:
-        (self.run_dir / "run.json").write_text(
-            json.dumps({"run_id": self.run_id, **meta}, indent=2), encoding="utf-8"
-        )
+        """Merge into run.json so start-of-run and end-of-run metadata both survive."""
+        path = self.run_dir / "run.json"
+        existing: dict[str, Any] = {}
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except ValueError:
+                existing = {}
+        existing.update({"run_id": self.run_id, **meta})
+        path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
     def step(self, obj: dict[str, Any]) -> None:
         record = {"run_id": self.run_id, "ts": utcnow_iso(), **obj}
