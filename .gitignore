@@ -1,0 +1,51 @@
+# ---- Secrets & local config ----
+.env
+.env.*
+!.env.example
+config/config.yaml           # the ACTIVE profile is machine-local; profiles/ is tracked
+keys/                        # lab-only SSH keypairs, never commit
+*.pem
+*.key
+
+# ---- Run artifacts ----
+runs/*
+!runs/sample-run/            # keep the one committed example
+!runs/.gitkeep
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+
+# ---- Docker / infra local state ----
+*.local.yml
+.docker/
+infra/**/.env
+
+# ---- VM artifacts (future vm-mode) ----
+.vagrant/
+*.box
+*.qcow2
+*.vdi
+*.vmdk
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
