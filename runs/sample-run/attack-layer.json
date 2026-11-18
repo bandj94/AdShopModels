@@ -1,0 +1,49 @@
+{
+  "name": "sample-run",
+  "versions": {
+    "layer": "4.5",
+    "navigator": "4.9.1"
+  },
+  "domain": "enterprise-attack",
+  "description": "Techniques observed in this LLM Adversary Lab run.",
+  "techniques": [
+    {
+      "techniqueID": "T1033",
+      "score": 1,
+      "comment": "System Owner/User Discovery",
+      "color": "#e60d0d"
+    },
+    {
+      "techniqueID": "T1046",
+      "score": 1,
+      "comment": "Network Service Discovery",
+      "color": "#e60d0d"
+    },
+    {
+      "techniqueID": "T1190",
+      "score": 1,
+      "comment": "Exploit Public-Facing Application",
+      "color": "#e60d0d"
+    },
+    {
+      "techniqueID": "T1595",
+      "score": 1,
+      "comment": "Active Scanning",
+      "color": "#e60d0d"
+    },
+    {
+      "techniqueID": "T1595.003",
+      "score": 1,
+      "comment": "Wordlist Scanning",
+      "color": "#e60d0d"
+    }
+  ],
+  "gradient": {
+    "colors": [
+      "#ffffff",
+      "#e60d0d"
+    ],
+    "minValue": 0,
+    "maxValue": 1
+  }
+}

@@ -1,0 +1,42 @@
+# v1 core slice: attacker + Juice Shop target only, no blue team.
+# The "prove the loop on one target first" profile (README §10 / docs/roadmap.md v1).
+# Bring blue team online later with docker-web.yaml (v2).
+deployment:
+  mode: docker
+  lab_cidr: 10.13.37.0/24
+  egress: false
+
+attacker:
+  kind: container
+  container_name: lab-attacker
+  ip: 10.13.37.10
+  llm:
+    endpoint: http://localhost:11434/v1
+    model: qwen3:8b
+    temperature: 0.4
+    max_tokens: 2048
+
+target:
+  kind: juice-shop
+  provider: docker
+  container_name: lab-target
+  ip: 10.13.37.20
+
+blueteam:
+  siem: none                   # no SIEM in the v1 core slice
+  nids: none                   # no NIDS in the v1 core slice
+  endpoint_monitoring: auditd
+
+run:
+  goal: "Find and read the flag on the target"
+  max_steps: 40
+  step_timeout_s: 120
+  max_wall_clock_s: 3600
+  stop_on_goal: true
+
+safety:
+  default_deny: true
+  allow: [nmap, curl, wget, sqlmap, nikto, whatweb, gobuster, ffuf, hydra, nc, ncat,
+          cat, ls, grep, head, tail, echo, whoami, id, uname, ps, netstat, ss, dig, host]
+  deny: ["shutdown", "reboot", "rm -rf /", "mkfs", ":(){", "dd if=", "> /dev/sd",
+         "iptables -F", "/etc/shadow >", "chmod -R 777 /"]

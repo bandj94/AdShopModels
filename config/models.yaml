@@ -1,0 +1,62 @@
+# Model registry for the attacker bake-off (`python lab.py compare`).
+#
+# Each entry is one attacker brain the harness runs against the SAME target, under the SAME
+# scope guard and step budget, scoring every run identically (see orchestrator/bench.py).
+#
+# Because each local model fills the 8 GB GPU, runs are SERIAL: the harness brings one server
+# up, runs the attack, tears it down, then moves to the next. `launcher` is the .bat that starts
+# that model's llama.cpp server; `type: ollama` entries are assumed already served by Ollama.
+#
+# Fields:
+#   alias        model id the server reports (llama.cpp --alias, or the Ollama tag) — sent as "model"
+#   type         llamacpp | ollama
+#   endpoint     OpenAI-compatible /v1 base URL
+#   launcher     path to the .bat that starts the server (llamacpp only; null for ollama)
+#   temperature  sampling temp — kept at each model's tuned operating point (from its .bat)
+#   max_tokens   output cap per step
+#   slow         true => give the server a longer per-step timeout (dense CPU-bound models)
+#
+# Launchers live in C:\Users\bandj\Claude\local-llm\ (see its README.md for the hardware notes).
+
+models:
+  - alias: ornith-35b
+    type: llamacpp
+    endpoint: http://localhost:8080/v1
+    launcher: C:\Users\bandj\Claude\local-llm\start-ornith-35b.bat
+    temperature: 0.6
+    max_tokens: 2048
+    slow: false
+
+  - alias: ornith-9b
+    type: llamacpp
+    endpoint: http://localhost:8080/v1
+    launcher: C:\Users\bandj\Claude\local-llm\start-ornith-9b.bat
+    temperature: 0.6
+    max_tokens: 2048
+    slow: false
+
+  - alias: qwen3.6-35b
+    type: llamacpp
+    endpoint: http://localhost:8080/v1
+    launcher: C:\Users\bandj\Claude\local-llm\start-qwen3.6-35b.bat
+    temperature: 0.6
+    max_tokens: 2048
+    slow: false
+
+  - alias: qwen3.8-27b
+    type: llamacpp
+    endpoint: http://localhost:8080/v1
+    launcher: C:\Users\bandj\Claude\local-llm\start-qwen3.8-27b.bat
+    temperature: 1.0
+    max_tokens: 2048
+    slow: true          # dense 27B, ~3 tok/s — half runs on CPU
+
+  # Aligned control group: stock, refusal-prone. Expect higher refusal counts than the Heretic
+  # builds above. Served by Ollama (ollama serve), not a .bat.
+  - alias: "qwen3:8b"
+    type: ollama
+    endpoint: http://localhost:11434/v1
+    launcher: null
+    temperature: 0.4
+    max_tokens: 2048
+    slow: false

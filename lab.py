@@ -7,6 +7,7 @@ operator — or an agent on the host — needs to drive the lab:
     python lab.py doctor     # check toolchain, model, scope guard (no containers)
     python lab.py up         # start the lab, verify NO egress (fails closed)
     python lab.py attack     # run the LLM attacker against the current target
+    python lab.py compare    # bake-off: run every model in config/models.yaml, score + rank
     python lab.py snapshot    # mark/record a clean baseline
     python lab.py reset      # recreate containers from images (clean baseline)
     python lab.py collect    # gather the latest run's artifacts
@@ -27,6 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config" / "config.yaml"
+MODELS_PATH = ROOT / "config" / "models.yaml"
 COMPOSE_DIR = ROOT / "infra" / "docker"
 LABNET = "labnet"  # explicit network name set in compose; isolated, no egress
 
@@ -233,6 +235,59 @@ def cmd_attack(args) -> int:
     return 0
 
 
+def cmd_compare(args) -> int:
+    """Bake-off: run every model in config/models.yaml against the current target, score + rank."""
+    cfg = _load_cfg()
+    if not cfg:
+        return 1
+    if not _have_docker():
+        fail("docker not installed — see docs/windows-docker-setup.md")
+        return 1
+    if not MODELS_PATH.exists():
+        fail(f"{MODELS_PATH} missing — add a model registry (see config/models.yaml)")
+        return 1
+
+    from orchestrator.bench import load_model_specs, run_comparison
+
+    specs = load_model_specs(MODELS_PATH)
+    if args.models:
+        wanted = {m.strip() for m in args.models.split(",")}
+        specs = [s for s in specs if s.alias in wanted]
+    if args.skip_slow:
+        specs = [s for s in specs if not s.slow]
+    if not specs:
+        fail("no models selected (check --models / --skip-slow against config/models.yaml)")
+        return 1
+
+    manage = not args.manual
+    print(_c(f"Bake-off: {len(specs)} model(s) vs {cfg.target.kind}@{cfg.target.ip}", "b"))
+    print("  " + ", ".join(s.alias for s in specs))
+    if manage:
+        print(_c("  server mode: automated (harness starts/stops each llama.cpp server)", "d"))
+    else:
+        print(_c("  server mode: manual (launch each .bat; harness waits for it)", "d"))
+
+    reset_fn = None if args.no_reset else (lambda: cmd_reset(args))
+    out_dir, cards = run_comparison(
+        cfg, specs,
+        comparisons_root=str(ROOT / "comparisons"),
+        reset_fn=reset_fn,
+        manage_servers=manage,
+        repeat=args.repeat,
+        goal=args.goal,
+        server_timeout_s=args.server_timeout,
+        log=print,
+    )
+
+    from orchestrator.bench import leaderboard_md
+
+    print()
+    print(leaderboard_md(cards))
+    ok(f"artifacts: {out_dir}")
+    print(f"  leaderboard: {out_dir / 'leaderboard.md'}")
+    return 0
+
+
 def cmd_reset(args) -> int:
     cfg = _load_cfg()
     if not cfg:
@@ -280,6 +335,14 @@ def main() -> int:
     sub.add_parser("up", help="start the lab and verify no egress")
     p_attack = sub.add_parser("attack", help="run the LLM attacker")
     p_attack.add_argument("--goal", default=None, help="override the profile goal")
+    p_cmp = sub.add_parser("compare", help="bake-off: run every model in config/models.yaml, score + rank")
+    p_cmp.add_argument("--models", default=None, help="comma-separated aliases to run (default: all)")
+    p_cmp.add_argument("--repeat", type=int, default=1, help="runs per model (default: 1)")
+    p_cmp.add_argument("--goal", default=None, help="override the profile goal")
+    p_cmp.add_argument("--manual", action="store_true", help="you launch each server; harness waits")
+    p_cmp.add_argument("--skip-slow", action="store_true", help="skip models marked slow (the 27B)")
+    p_cmp.add_argument("--no-reset", action="store_true", help="don't reset the target between models")
+    p_cmp.add_argument("--server-timeout", type=int, default=420, help="seconds to wait for a server to load")
     sub.add_parser("snapshot", help="record a clean baseline")
     sub.add_parser("reset", help="recreate containers from images")
     sub.add_parser("collect", help="gather the latest run's artifacts")
@@ -288,7 +351,8 @@ def main() -> int:
     args = parser.parse_args()
     handlers = {
         "doctor": cmd_doctor, "selftest": cmd_selftest, "up": cmd_up, "attack": cmd_attack,
-        "snapshot": cmd_snapshot, "reset": cmd_reset, "collect": cmd_collect, "down": cmd_down,
+        "compare": cmd_compare, "snapshot": cmd_snapshot, "reset": cmd_reset,
+        "collect": cmd_collect, "down": cmd_down,
     }
     try:
         return handlers[args.command](args)
