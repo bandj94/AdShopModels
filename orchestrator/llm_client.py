@@ -43,6 +43,13 @@ class LLMClient:
                 f"could not reach model server at {self.cfg.endpoint} — is Ollama running? "
                 f"(try `ollama serve` / `ollama list`)\n{e}"
             ) from e
+        except requests.exceptions.Timeout as e:
+            raise LLMError(
+                f"model server at {self.cfg.endpoint} timed out after {self.timeout_s}s "
+                f"(a cold model load can be slow on first call)\n{e}"
+            ) from e
+        except requests.exceptions.RequestException as e:
+            raise LLMError(f"request to model server failed: {e}") from e
         if resp.status_code != 200:
             raise LLMError(f"model server returned {resp.status_code}: {resp.text[:500]}")
 
@@ -58,10 +65,24 @@ class LLMClient:
             **overrides,
         )
 
-    def ping(self) -> bool:
-        """Lightweight reachability check used by `lab.py doctor`."""
+    def ping(self, timeout_s: int = 5) -> bool:
+        """Fast reachability check: hit the OpenAI-compatible /models listing.
+
+        Avoids a (possibly slow) generation, so `lab.py doctor` stays quick even when the
+        model is cold. Returns True if the server answers 200.
+        """
+        url = self.cfg.endpoint.rstrip("/") + "/models"
         try:
-            self.complete("You are a test.", "Reply with the single word: ok", max_tokens=5)
-            return True
-        except LLMError:
+            return requests.get(url, timeout=timeout_s).status_code == 200
+        except requests.exceptions.RequestException:
             return False
+
+    def model_available(self, timeout_s: int = 5) -> bool:
+        """True if the configured model id appears in the server's /models listing."""
+        url = self.cfg.endpoint.rstrip("/") + "/models"
+        try:
+            data = requests.get(url, timeout=timeout_s).json()
+        except (requests.exceptions.RequestException, ValueError):
+            return False
+        ids = {m.get("id") for m in data.get("data", [])}
+        return self.cfg.model in ids
