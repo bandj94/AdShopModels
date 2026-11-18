@@ -1,0 +1,13 @@
+# OWASP Juice Shop — modern vulnerable web target (OWASP Top 10). Listens on :3000.
+# Not published to the host — reachable only from inside labnet (http://target:3000).
+services:
+  target:
+    image: bkimminich/juice-shop:${JUICE_SHOP_TAG:-v16.0.0}
+    container_name: lab-target
+    hostname: target
+    networks:
+      labnet:
+        ipv4_address: 10.13.37.20
+    environment:
+      - NODE_ENV=unsafe
+    restart: unless-stopped

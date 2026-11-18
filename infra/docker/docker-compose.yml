@@ -1,0 +1,37 @@
+# Base stack: the isolated network + the attacker. Targets, SIEM, and NIDS are layered in
+# from overrides/ per the active profile (lab.py selects the -f files).
+#
+#   labnet : internal=true  -> NO gateway, NO egress. attacker <-> target(s) live here.
+#   mgmt   : normal bridge   -> only blue-team UIs publish here, bound to 127.0.0.1.
+name: adversary-lab
+
+networks:
+  labnet:
+    name: labnet
+    internal: true            # <- the isolation guarantee: no route off this network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.13.37.0/24
+  mgmt:
+    name: mgmt
+    driver: bridge
+
+services:
+  attacker:
+    build:
+      context: ./attacker
+    image: adversary-lab/attacker:latest
+    container_name: lab-attacker
+    hostname: attacker
+    networks:
+      labnet:
+        ipv4_address: 10.13.37.10
+    cap_add:
+      - NET_RAW            # nmap raw packets, etc.
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+    # Kept alive; the orchestrator drives it via `docker exec`, never a published port.
+    command: ["sleep", "infinity"]
+    restart: unless-stopped

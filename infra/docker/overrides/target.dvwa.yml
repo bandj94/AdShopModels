@@ -1,0 +1,11 @@
+# DVWA — Damn Vulnerable Web Application (adjustable difficulty). Listens on :80.
+# Not published to the host — reachable only from inside labnet (http://target/).
+services:
+  target:
+    image: ghcr.io/digininja/dvwa:${DVWA_TAG:-latest}
+    container_name: lab-target
+    hostname: target
+    networks:
+      labnet:
+        ipv4_address: 10.13.37.20
+    restart: unless-stopped

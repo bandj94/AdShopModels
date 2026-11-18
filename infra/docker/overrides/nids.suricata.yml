@@ -1,0 +1,22 @@
+# Suricata NIDS. Shares the TARGET's network namespace so it sees ALL traffic to/from the
+# target (i.e. the attacker's traffic) without needing a bridge mirror. Writes eve.json to a
+# shared volume the SIEM reads. This override must be applied AFTER the target override.
+services:
+  suricata:
+    image: jasonish/suricata:${SURICATA_TAG:-latest}
+    container_name: lab-suricata
+    network_mode: "service:target"      # capture the target's traffic
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    command: ["-i", "eth0"]
+    volumes:
+      - suricata-logs:/var/log/suricata
+      # v2: mount ../../blueteam/suricata/suricata.yaml + custom rules here (read-only)
+    depends_on:
+      - target
+    restart: unless-stopped
+
+volumes:
+  suricata-logs:

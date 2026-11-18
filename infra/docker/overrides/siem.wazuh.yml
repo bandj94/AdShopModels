@@ -1,0 +1,36 @@
+# Wazuh (SIEM) — v0 SKELETON. The manager alone is wired here so the compose graph is valid
+# and the Suricata eve.json is mounted in. v2 completes the single-node stack (indexer +
+# dashboard) from Wazuh's official compose, generates certs with wazuh-certs-tool, and
+# publishes the dashboard to 127.0.0.1:${WAZUH_DASHBOARD_PORT} on the mgmt network only.
+#
+# See blueteam/wazuh/README.md for the v2 build-out steps.
+services:
+  wazuh-manager:
+    image: wazuh/wazuh-manager:${WAZUH_TAG:-4.9.2}
+    container_name: lab-wazuh-manager
+    hostname: wazuh-manager
+    networks:
+      labnet:
+        ipv4_address: 10.13.37.30
+      mgmt: {}
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    volumes:
+      - wazuh-manager-data:/var/ossec/data
+      - suricata-logs:/var/log/suricata:ro        # ingest Suricata eve.json
+      - ../../blueteam/wazuh/rules:/var/ossec/etc/rules/custom:ro
+    restart: unless-stopped
+
+  # --- v2 (uncomment + configure certs) --------------------------------------------------
+  # wazuh-indexer:
+  #   image: wazuh/wazuh-indexer:${WAZUH_TAG:-4.9.2}
+  #   networks: [mgmt]
+  # wazuh-dashboard:
+  #   image: wazuh/wazuh-dashboard:${WAZUH_TAG:-4.9.2}
+  #   networks: [mgmt]
+  #   ports:
+  #     - "127.0.0.1:${WAZUH_DASHBOARD_PORT:-5601}:5601"   # host-localhost only
+
+volumes:
+  wazuh-manager-data:
+  suricata-logs:
