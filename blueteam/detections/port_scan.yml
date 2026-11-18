@@ -1,0 +1,27 @@
+title: Port Scan Against Lab Target
+id: a1f4d2c0-1e5b-4c77-9d21-0b3c9f8e0003
+status: experimental
+description: Detects a burst of new TCP connections characteristic of a port scan (T1046).
+references:
+  - https://attack.mitre.org/techniques/T1046/
+author: llm-adversary-lab
+logsource:
+  product: suricata
+  service: flow
+detection:
+  selection:
+    event_type: 'flow'
+    proto: 'TCP'
+  timeframe: 5s
+  condition: selection | count(dest_port) by src_ip > 20
+fields:
+  - src_ip
+  - dest_ip
+  - dest_port
+falsepositives:
+  - Authorized scanning inside the lab.
+level: medium
+tags:
+  - attack.discovery
+  - attack.t1046
+# test: docker exec lab-attacker sh -lc 'nmap -sS -p1-1000 target'

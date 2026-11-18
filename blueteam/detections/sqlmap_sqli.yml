@@ -1,0 +1,24 @@
+title: SQLi Tool (sqlmap) Against Lab Target
+id: a1f4d2c0-1e5b-4c77-9d21-0b3c9f8e0001
+status: experimental
+description: Detects the sqlmap default user-agent hitting the lab web target (T1190).
+references:
+  - https://attack.mitre.org/techniques/T1190/
+author: llm-adversary-lab
+logsource:
+  category: webserver
+detection:
+  selection:
+    c-useragent|contains: 'sqlmap'
+  condition: selection
+fields:
+  - c-ip
+  - cs-uri-stem
+  - c-useragent
+falsepositives:
+  - Legitimate authorized testing — expected inside this lab; alert is still desirable.
+level: high
+tags:
+  - attack.initial_access
+  - attack.t1190
+# test: docker exec lab-attacker sh -lc 'curl -s -A "sqlmap/1.8" http://target:3000/rest/products/search?q=1'

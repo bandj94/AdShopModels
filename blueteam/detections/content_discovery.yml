@@ -1,0 +1,24 @@
+title: Web Content Discovery (gobuster / ffuf)
+id: a1f4d2c0-1e5b-4c77-9d21-0b3c9f8e0002
+status: experimental
+description: Detects content-discovery tooling by user-agent against the lab target (T1595.003).
+references:
+  - https://attack.mitre.org/techniques/T1595/003/
+author: llm-adversary-lab
+logsource:
+  category: webserver
+detection:
+  selection:
+    c-useragent|re: '(?i)gobuster|ffuf|feroxbuster|dirb'
+  condition: selection
+fields:
+  - c-ip
+  - c-useragent
+  - sc-status
+falsepositives:
+  - Authorized scanning inside the lab.
+level: medium
+tags:
+  - attack.reconnaissance
+  - attack.t1595.003
+# test: docker exec lab-attacker sh -lc 'curl -s -A "gobuster/3.6" http://target:3000/admin'
