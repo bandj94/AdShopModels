@@ -31,7 +31,11 @@ class Mapping:
 
 
 def classify(command: str, observation: str = "") -> Mapping:
-    hay = f"{command}\n{observation}".lower()
+    # Classify on the COMMAND only (the rules are written over commands). Folding in the
+    # observation produced false positives — e.g. a bare `\bid\b` rule matched `id="favicon"`
+    # in returned HTML and wrongly tagged T1033 on steps that never ran an id/whoami command.
+    # ``observation`` is kept in the signature for callers and possible future output rules.
+    hay = command.lower()
     techniques: list[str] = []
     phase = _DEFAULT[2]
     for rx, tech, _name, ph in _RULES:

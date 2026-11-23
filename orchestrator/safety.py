@@ -148,8 +148,14 @@ class SafetyGuard:
         # Bare FQDNs (e.g. `nslookup evil.example.com`) only matter for network tools,
         # and file-extension-looking labels (notes.txt) are ignored.
         if binary.lower() in _NETWORK_TOOLS:
-            for match in _FQDN_RE.findall(cmd):
-                host = match.lower()
+            for m in _FQDN_RE.finditer(cmd):
+                # Skip an email-style domain inside a payload (e.g. -d "email=admin@juiceshop.com"):
+                # the preceding '@' means it's a login value, not a network target. Real egress
+                # hosts are still caught — the URL scan above handles `://host`, and a bare
+                # out-of-scope FQDN (e.g. `nslookup evil.example.com`) has no leading '@'.
+                if m.start() > 0 and cmd[m.start() - 1] == "@":
+                    continue
+                host = m.group(0).lower()
                 if host.rsplit(".", 1)[-1] in _IGNORED_TLDS:
                     continue
                 if not self._host_in_scope(host):

