@@ -309,9 +309,25 @@ def cmd_collect(_args) -> int:
     if not latest:
         warn("no runs found yet")
         return 0
-    (latest / "bluelogs").mkdir(exist_ok=True)
     ok(f"latest run: {latest}")
-    print("  (v2 will copy Wazuh alerts + Suricata eve.json into bluelogs/)")
+    dest = latest / "bluelogs"
+    if not _have_docker():
+        dest.mkdir(exist_ok=True)
+        warn("docker not installed; no blue-team logs collected")
+        return 0
+    from orchestrator import bluelogs
+
+    results = bluelogs.collect(dest)
+    for name, good in results.items():
+        if good:
+            ok(f"bluelogs/{name}")
+        else:
+            warn(f"bluelogs/{name}: container not running or no file yet")
+    summary = bluelogs.write_summary(dest)
+    techs = ", ".join(sorted(summary["wazuh_techniques"])) or "none"
+    print(f"  suricata alerts: {sum(summary['suricata_alerts'].values())} | "
+          f"wazuh lab alerts: {sum(summary['wazuh_alerts'].values())} | techniques: {techs}")
+    ok(f"blue-team logs -> {dest}")
     return 0
 
 

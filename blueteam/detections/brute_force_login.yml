@@ -1,0 +1,26 @@
+title: Repeated Login Attempts (Brute Force) Against Lab Target
+id: a1f4d2c0-1e5b-4c77-9d21-0b3c9f8e0004
+status: experimental
+description: Detects >=5 POSTs to the Juice Shop login endpoint from one source in 30s (T1110). Suricata sid 9000006 / Wazuh 100105.
+references:
+  - https://attack.mitre.org/techniques/T1110/
+author: llm-adversary-lab
+logsource:
+  category: webserver
+detection:
+  selection:
+    cs-method: 'POST'
+    cs-uri-stem|endswith: '/rest/user/login'
+  timeframe: 30s
+  condition: selection | count() by c-ip >= 5
+fields:
+  - c-ip
+  - cs-uri-stem
+  - c-useragent
+falsepositives:
+  - Legitimate user mistyping a password repeatedly (rare at this rate).
+level: medium
+tags:
+  - attack.credential_access
+  - attack.t1110
+# test: docker exec lab-attacker sh -lc 'for i in 1 2 3 4 5 6; do curl -s -X POST -H "Content-Type: application/json" -d "{\"email\":\"a@b.c\",\"password\":\"x$i\"}" http://target:3000/rest/user/login >/dev/null; done'

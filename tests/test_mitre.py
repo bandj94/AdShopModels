@@ -17,7 +17,18 @@ def test_id_in_observation_does_not_trigger_t1033():
 
 def test_real_id_command_triggers_t1033():
     assert "T1033" in classify("id", "uid=0(root)").techniques
+    assert "T1033" in classify("whoami; id", "").techniques
+    assert "T1033" in classify("sudo id", "").techniques
     assert "T1033" in classify("cat /etc/passwd", "").techniques
+
+
+def test_id_substring_in_command_is_not_t1033():
+    # Real false positives: `id` inside a grep alternation and inside a URL query param must
+    # NOT be read as the `id` command.
+    grep_pat = "curl -s http://10.13.37.20/x | grep -oE '\"(username|email|id)\"[^,]*'"
+    assert "T1033" not in classify(grep_pat, "").techniques
+    assert "T1033" not in classify("curl 'http://10.13.37.20/rest/products?id=1'", "").techniques
+    assert "T1033" not in classify("curl http://10.13.37.20/userid/1", "").techniques
 
 
 def test_nmap_maps_to_t1046_from_command():

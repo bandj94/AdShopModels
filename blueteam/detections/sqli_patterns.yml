@@ -1,0 +1,26 @@
+title: SQL Injection Patterns (tautology / UNION SELECT) Against Lab Target
+id: a1f4d2c0-1e5b-4c77-9d21-0b3c9f8e0005
+status: experimental
+description: Detects SQLi tautologies and UNION SELECT in the URI or request body, tool-agnostic (T1190). Suricata sids 9000004/5/7 / Wazuh 100104.
+references:
+  - https://attack.mitre.org/techniques/T1190/
+author: llm-adversary-lab
+logsource:
+  category: webserver
+detection:
+  uri:
+    cs-uri-query|re: "(?i)('|%27)(\\s|\\+|%20)*or(\\s|\\+|%20)+('|%27)?\\w+('|%27)?(\\s|\\+|%20)*=|union(\\s|\\+|%20)+(all(\\s|\\+|%20)+)?select"
+  body:
+    cs-body|re: "(?i)'\\s*or\\s*'?\\w+'?\\s*=|union\\s+(all\\s+)?select"
+  condition: uri or body
+fields:
+  - c-ip
+  - cs-uri-query
+falsepositives:
+  - Security scanners run deliberately inside the lab.
+level: high
+tags:
+  - attack.initial_access
+  - attack.t1190
+# test: docker exec lab-attacker sh -lc "curl -s -G --data-urlencode \"q=' OR '1'='1\" http://target:3000/rest/products/search"
+# test: docker exec lab-attacker sh -lc "curl -s -G --data-urlencode 'q=x) UNION SELECT 1,2,3--' http://target:3000/rest/products/search"

@@ -1,45 +1,49 @@
-# sample-run — first real v1 run
+# sample-run — v2 both-sides run (red + blue)
 
-A **live** single-target run, committed as the v1 deliverable (`v1.0-single-target`). Unlike the
-earlier offline placeholder, this was produced by `python lab.py attack` against the real lab:
-the uncensored local model **`ornith-9b`** (llama.cpp on the host) driving the Kali attacker
-container against **OWASP Juice Shop v16**, on a Docker internal network with **no egress**.
+A **live** run with the **blue team online**, committed as the v2 deliverable
+(`v2.0-blue-team`). The uncensored local model **`ornith-9b`** drives the Kali attacker against
+**OWASP Juice Shop v16** on a Docker internal no-egress network, while **Suricata** (NIDS) and
+**Wazuh** (SIEM) watch and alert. This directory holds *both* sides of the engagement.
 
-- `transcript.jsonl` — one JSON object per step (the source of truth; the rest derive from it).
-- `report.md` — human-readable write-up.
-- `attack-layer.json` — MITRE ATT&CK Navigator layer.
-- `run.json` — run metadata (merged start + finish).
+## Files
 
-## Outcome
+| Side | File | What |
+|---|---|---|
+| 🔴 red | `transcript.jsonl` | one JSON object per attacker step (source of truth) |
+| 🔴 red | `report.md` | attacker write-up |
+| 🔴 red | `attack-layer.json` | MITRE ATT&CK Navigator layer (attacker intent) |
+| 🔴 red | `run.json` | run metadata |
+| 🔵 blue | `bluelogs/eve.json` | Suricata events (what the wire saw) |
+| 🔵 blue | `bluelogs/alerts.json` | Wazuh alerts (correlated + ATT&CK-tagged) |
+| 🔵 blue | `bluelogs/summary.json` | alert counts by signature / rule / technique (`lab.py collect`) |
 
-| | |
-|---|---|
-| Model | `ornith-9b` (uncensored, 8B, fits the 8 GB GPU) |
-| Target | Juice Shop v16 @ 10.13.37.20 |
-| Steps | 40 / 40 |
-| `goal_met` | **False** — *expected*: Juice Shop has no literal `flag{}`/`flag:`/`ctf{` string |
-| ATT&CK | `T1046` (Network Service Discovery) |
+## Both-sides timeline
 
-## What it demonstrates
+**🔴 Attacker (`ornith-9b`, 40 steps, `goal_met=False`)** — mapped intent `T1046`, `T1083`,
+`T1190`: an `nmap` port scan, then web enumeration and injection-style probing of Juice Shop's
+REST API (`/rest/products/search`, `/jwttool`, `/api/...`). It never reached a flag (Juice Shop
+has no literal `flag{}`), and — as with the v1 run — a small 8B agent loops rather than pivoting.
 
-- The full **ReAct loop**: the model reasons, emits one shell command per step, the **scope
-  guard** gates it, the executor runs it in the Kali container, and every step is logged.
-- **Isolation held** — no-egress was verified at boot; nothing in the transcript reaches off-lab.
-- **Honest negative result** — the run is committed as-is, not cherry-picked to look like a win.
+**🔵 Defender (Suricata + Wazuh)** — detected the reconnaissance: **2 Suricata alerts** for the
+SYN scan → Wazuh rule **`100102` (T1046 Network Service Discovery)**. See `bluelogs/summary.json`.
 
-## Known limitations (motivating v3)
-
-- `ornith-9b` **fixated**: ~30 of 40 steps were near-identical `POST /login` attempts against the
-  wrong endpoint (it never discovered Juice Shop's real `/rest/user/login`), so only one technique
-  surfaced. This is a small-model behavior — it loops without strong state — and is exactly what
-  the v3 **memory/compaction + dedup** work targets. The two `blocked` steps are empty model
-  completions the guard fail-closes on (not a parser bug).
+**The interesting part — a detection *gap*.** The attacker's intent spanned `T1046/T1083/T1190`,
+but the blue team only caught `T1046`. The web-layer probing evaded Suricata for a subtle reason:
+the model *did* send a SQLi tautology (`?search=' OR '1'='1`, steps 33–34), but with a **raw,
+un-encoded space** — which malformed the HTTP request line, so Suricata logged those requests as
+HTTP **anomalies** (`REQUEST_LINE_INCOMPLETE`; see `bluelogs/eve.json`) rather than parseable
+`http` events, and sig `9000004`'s `http.uri` match never had a clean URI to fire on. A properly
+URL-encoded tautology *does* trip `9000004` (verified per-signature in `blueteam/README.md`). That
+red-vs-blue delta — *attacker did X, defender saw only Y* — is the whole point of the lab, and an
+honest, measurable result rather than a staged "everything caught" demo.
 
 ## Reproduce
 
 ```powershell
-# start a model server (e.g. start-ornith-9b.bat on :8080), then:
+Copy-Item config\profiles\docker-web.yaml config\config.yaml   # blue-team profile
+python lab.py up                                               # lab + Suricata + Wazuh, no egress
+# start a model server (e.g. start-ornith-9b.bat), then:
 $env:LLM_ENDPOINT="http://localhost:8080/v1"; $env:LLM_MODEL="ornith-9b"
-python lab.py up        # brings the lab up, verifies NO egress (fails closed)
-python lab.py attack    # writes a fresh run under runs/<run_id>/
+python lab.py attack
+python lab.py collect                                          # pulls bluelogs/ into the run
 ```

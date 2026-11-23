@@ -6,9 +6,8 @@ so it sees every packet to/from the target — i.e. all of the attacker's traffi
 
 ## Files
 
-- `local.rules` — custom, ATT&CK-annotated signatures (sids 9000000+). Mount read-only into the
-  container at `/var/lib/suricata/rules/local.rules` and reference it from `suricata.yaml`
-  (`rule-files:`). Wiring the mount is a v2 step.
+- `local.rules` — custom, ATT&CK-annotated signatures (sids 9000000+). Mounted read-only at
+  `/etc/suricata/lab/local.rules` and loaded exclusively via `-S` (see the nids override).
 
 ## Testing a rule (from the attacker container)
 
@@ -19,4 +18,4 @@ docker exec lab-attacker sh -lc 'curl -s -A "sqlmap/1.8" http://target:3000/rest
 docker exec lab-suricata sh -lc 'tail -n 50 /var/log/suricata/eve.json | grep 9000002'
 ```
 
-Set `HOME_NET: "[10.13.37.20/32]"` (the target) in `suricata.yaml` so the directional rules match.
+HOME_NET is set to the target (10.13.37.20/32) via `--set` in the compose command.

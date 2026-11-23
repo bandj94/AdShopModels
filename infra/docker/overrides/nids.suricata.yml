@@ -1,19 +1,34 @@
 # Suricata NIDS. Shares the TARGET's network namespace so it sees ALL traffic to/from the
 # target (i.e. the attacker's traffic) without needing a bridge mirror. Writes eve.json to a
 # shared volume the SIEM reads. This override must be applied AFTER the target override.
+#
+# Rules: only blueteam/suricata/local.rules is loaded (-S = exclusive), so the lab needs no
+# suricata-update / ET ruleset download and the container needs no egress. HOME_NET is pinned
+# to the target. The image's stock eve-log config writes /var/log/suricata/eve.json (JSON).
 services:
   suricata:
-    image: jasonish/suricata:${SURICATA_TAG:-latest}
+    image: jasonish/suricata:${SURICATA_TAG:-7.0.8}
     container_name: lab-suricata
-    network_mode: "service:target"      # capture the target's traffic
+    network_mode: "service:target"      # capture the target's traffic (no networks: allowed here)
     cap_add:
       - NET_ADMIN
       - NET_RAW
       - SYS_NICE
-    command: ["-i", "eth0"]
+    command:
+      - "-i"
+      - "eth0"
+      - "-k"
+      - "none"                          # ignore checksums (virtual NICs offload them)
+      - "-S"
+      - "/lab-rules/local.rules"         # exclusive: load ONLY the lab rules
+      - "--set"
+      - "vars.address-groups.HOME_NET=[10.13.37.20/32]"
+    # Rules are mounted OUTSIDE /etc/suricata so the image entrypoint's recursive chown of
+    # /etc/suricata never touches this read-only bind mount (that chown fails on :ro and
+    # crash-loops the container).
     volumes:
       - suricata-logs:/var/log/suricata
-      # v2: mount ../../blueteam/suricata/suricata.yaml + custom rules here (read-only)
+      - ../../blueteam/suricata/local.rules:/lab-rules/local.rules:ro
     depends_on:
       - target
     restart: unless-stopped

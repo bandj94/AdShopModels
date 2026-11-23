@@ -1,0 +1,11 @@
+{
+  "suricata_alerts": {
+    "LAB T1046 nmap-style SYN scan": 2
+  },
+  "wazuh_alerts": {
+    "100102 Network service discovery / port scan against lab target [T1046]": 2
+  },
+  "wazuh_techniques": {
+    "T1046": 2
+  }
+}

@@ -1,36 +1,84 @@
-# Wazuh (SIEM) — v0 SKELETON. The manager alone is wired here so the compose graph is valid
-# and the Suricata eve.json is mounted in. v2 completes the single-node stack (indexer +
-# dashboard) from Wazuh's official compose, generates certs with wazuh-certs-tool, and
-# publishes the dashboard to 127.0.0.1:${WAZUH_DASHBOARD_PORT} on the mgmt network only.
+# Wazuh SIEM -- single-node CORE: the manager only (analysisd + logcollector + API).
+# It reads Suricata's eve.json from the shared suricata-logs volume, applies the lab's custom
+# rules, and writes /var/ossec/logs/alerts/alerts.json (which `lab.py collect` copies out).
+# No indexer/dashboard is needed for detection; those are an OPTIONAL profile below.
 #
-# See blueteam/wazuh/README.md for the v2 build-out steps.
+# Isolation: the manager is on `mgmt` ONLY (it needs nothing on labnet -- it reads Suricata via
+# a volume), so the attacker cannot even see it. The API is published to host 127.0.0.1 only.
+# Alert state is ephemeral (no data volumes): `lab.py down` / `reset` wipes it, so collect first.
 services:
   wazuh-manager:
     image: wazuh/wazuh-manager:${WAZUH_TAG:-4.9.2}
     container_name: lab-wazuh-manager
     hostname: wazuh-manager
     networks:
-      labnet:
-        ipv4_address: 10.13.37.30
-      mgmt: {}
+      - mgmt
+    ports:
+      - "127.0.0.1:${WAZUH_API_PORT:-55000}:55000"    # API, host-localhost only
+    environment:
+      # Filebeat ships to an indexer; in core mode there is none, so it just retries quietly.
+      # Dummy values satisfy the image's init script. Not real credentials.
+      - INDEXER_URL=https://wazuh-indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD:-SecretPassword}
+      - FILEBEAT_SSL_VERIFICATION_MODE=none
+      - API_USERNAME=wazuh-wui
+      - API_PASSWORD=${WAZUH_API_PASSWORD:-MyS3cr37P450r.*-}
     ulimits:
       memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
     volumes:
-      - wazuh-manager-data:/var/ossec/data
-      - suricata-logs:/var/log/suricata:ro        # ingest Suricata eve.json
-      - ../../blueteam/wazuh/rules:/var/ossec/etc/rules/custom:ro
+      - suricata-logs:/var/log/suricata:ro                      # eve.json from Suricata
+      # The image copies /wazuh-config-mount/* over /var/ossec/* at start.
+      - ../../blueteam/wazuh/config/ossec.conf:/wazuh-config-mount/etc/ossec.conf:ro
+      - ../../blueteam/wazuh/rules/local_rules.xml:/wazuh-config-mount/etc/rules/local_rules.xml:ro
     restart: unless-stopped
 
-  # --- v2 (uncomment + configure certs) --------------------------------------------------
-  # wazuh-indexer:
-  #   image: wazuh/wazuh-indexer:${WAZUH_TAG:-4.9.2}
-  #   networks: [mgmt]
-  # wazuh-dashboard:
-  #   image: wazuh/wazuh-dashboard:${WAZUH_TAG:-4.9.2}
-  #   networks: [mgmt]
-  #   ports:
-  #     - "127.0.0.1:${WAZUH_DASHBOARD_PORT:-5601}:5601"   # host-localhost only
+  # ---------------------------------------------------------------------------------------
+  # OPTIONAL STRETCH (disabled by default; enable with `--profile wazuh-ui`). NOT validated
+  # end to end. Caveats:
+  #   * Needs TLS certs first: run wazuh-certs-tool (see blueteam/README.md) so that
+  #     blueteam/wazuh/certs/ holds root-ca.pem, wazuh.indexer(-key).pem, wazuh.dashboard(-key).pem,
+  #     admin(-key).pem. Not generated here.
+  #   * The manager's filebeat also needs those certs + a matching INDEXER_PASSWORD hash in the
+  #     indexer's internal_users.yml before alerts reach the dashboard.
+  #   * Indexer wants vm.max_map_count>=262144 (WSL2: `wsl -d docker-desktop sysctl -w ...`) and
+  #     ~2-4 GB RAM; dashboard ~1 GB.
+  # Both sit on `mgmt` only; the dashboard binds host 127.0.0.1.
+  # ---------------------------------------------------------------------------------------
+  wazuh-indexer:
+    profiles: ["wazuh-ui"]
+    image: wazuh/wazuh-indexer:${WAZUH_TAG:-4.9.2}
+    container_name: lab-wazuh-indexer
+    hostname: wazuh-indexer
+    networks: [mgmt]
+    environment:
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - ../../blueteam/wazuh/certs:/usr/share/wazuh-indexer/certs:ro
+    restart: unless-stopped
+
+  wazuh-dashboard:
+    profiles: ["wazuh-ui"]
+    image: wazuh/wazuh-dashboard:${WAZUH_TAG:-4.9.2}
+    container_name: lab-wazuh-dashboard
+    hostname: wazuh-dashboard
+    networks: [mgmt]
+    ports:
+      - "127.0.0.1:${WAZUH_DASHBOARD_PORT:-5601}:5601"    # host-localhost only
+    environment:
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD:-SecretPassword}
+      - WAZUH_API_URL=https://wazuh-manager
+      - API_USERNAME=wazuh-wui
+      - API_PASSWORD=${WAZUH_API_PASSWORD:-MyS3cr37P450r.*-}
+    volumes:
+      - ../../blueteam/wazuh/certs:/usr/share/wazuh-dashboard/certs:ro
+    depends_on: [wazuh-indexer]
+    restart: unless-stopped
 
 volumes:
-  wazuh-manager-data:
   suricata-logs:

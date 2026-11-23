@@ -1,22 +1,27 @@
 <!--
-  Custom Wazuh rules for the LLM Adversary Lab.
-  Mounted read-only into the manager (see infra/docker/overrides/siem.wazuh.yml) and ingested
-  alongside Suricata's eve.json. Rule ids in the local 100000+ range.
+  Custom Wazuh rules for the LLM Adversary Lab (ids 100100+).
+  Mounted into the manager at /wazuh-config-mount/etc/rules/local_rules.xml (see
+  infra/docker/overrides/siem.wazuh.yml) and applied to Suricata's eve.json, which logcollector
+  reads as JSON. Child rules key off the Suricata sid (alert.signature_id) so they stay in
+  lock-step with blueteam/suricata/local.rules.
 -->
 <group name="llm_adversary_lab,">
 
-  <!-- Base: any Suricata alert that reaches the manager via the shared eve.json. -->
+  <!-- Base: specialize Wazuh's built-in Suricata alert rule (86601) so our lab rules join the
+       rule tree that actually matches eve.json. Keying off our own json/event_type rule did NOT
+       fire, because the event is already claimed by the built-in 86600->86601 tree.
+       NOTE: 86601 is a built-in Wazuh ruleset id, stable for the pinned WAZUH_TAG (4.9.2 in
+       siem.wazuh.yml). Re-check these <if_sid> parents if that image tag is bumped. -->
   <rule id="100100" level="6">
-    <decoded_as>json</decoded_as>
-    <field name="event_type">alert</field>
+    <if_sid>86601</if_sid>
     <description>Lab IDS alert: $(alert.signature)</description>
-    <group>ids,suricata,mitre,</group>
+    <group>ids,suricata,</group>
   </rule>
 
-  <!-- Escalate SQLi tooling. -->
+  <!-- sid 9000002: sqlmap user-agent. T1190 Exploit Public-Facing Application. -->
   <rule id="100101" level="10">
     <if_sid>100100</if_sid>
-    <field name="alert.signature">sqlmap</field>
+    <field name="alert.signature_id">^9000002$</field>
     <description>SQLi tool (sqlmap) against lab target [T1190]</description>
     <mitre>
       <id>T1190</id>
@@ -24,15 +29,48 @@
     <group>web_attack,</group>
   </rule>
 
-  <!-- Escalate scan bursts. -->
+  <!-- sid 9000001: SYN scan burst. T1046 Network Service Discovery. -->
   <rule id="100102" level="8">
     <if_sid>100100</if_sid>
-    <field name="alert.signature">SYN scan</field>
+    <field name="alert.signature_id">^9000001$</field>
     <description>Network service discovery / port scan against lab target [T1046]</description>
     <mitre>
       <id>T1046</id>
     </mitre>
     <group>recon,</group>
+  </rule>
+
+  <!-- sid 9000003 / 9000009: content discovery tool or high request rate. T1595.003 Wordlist Scanning. -->
+  <rule id="100103" level="7">
+    <if_sid>100100</if_sid>
+    <field name="alert.signature_id">^9000003$|^9000009$</field>
+    <description>Web content discovery against lab target [T1595.003]</description>
+    <mitre>
+      <id>T1595.003</id>
+    </mitre>
+    <group>recon,web_scan,</group>
+  </rule>
+
+  <!-- sid 9000004 / 9000005 / 9000007: SQLi patterns in URI or body. T1190. -->
+  <rule id="100104" level="10">
+    <if_sid>100100</if_sid>
+    <field name="alert.signature_id">^9000004$|^9000005$|^9000007$</field>
+    <description>SQL injection pattern against lab target [T1190]</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>web_attack,sql_injection,</group>
+  </rule>
+
+  <!-- sid 9000006 / 9000008: repeated login attempts or hydra. T1110 Brute Force. -->
+  <rule id="100105" level="9">
+    <if_sid>100100</if_sid>
+    <field name="alert.signature_id">^9000006$|^9000008$</field>
+    <description>Brute-force login attempts against lab target [T1110]</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failures,</group>
   </rule>
 
 </group>

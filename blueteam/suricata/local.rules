@@ -1,28 +1,76 @@
 # Custom Suricata signatures for the LLM Adversary Lab. ATT&CK-annotated.
-# $HOME_NET is the lab target. sids in the local 9000000+ range.
+# Loaded exclusively (-S) by infra/docker/overrides/nids.suricata.yml. HOME_NET = the target.
+# sids in the local 9000000+ range. Wazuh rules key off alert.signature_id (see
+# blueteam/wazuh/rules/local_rules.xml) -- keep the two files in sync.
+#
+# Note: Juice Shop speaks plain HTTP on :3000; Suricata's app-layer detection finds HTTP on any
+# port, so the `http` rule keyword works without a port list.
 
-# T1046 — Network Service Discovery (nmap-style SYN scan).
+# ---- T1046 Network Service Discovery (nmap SYN / connect scan) -------------------------
+# >=20 bare SYNs from one source within 5s. A normal curl/ffuf run reuses keep-alive
+# connections, so it does not trip this.
 alert tcp any any -> $HOME_NET any ( \
     msg:"LAB T1046 nmap-style SYN scan"; flags:S; \
     threshold:type both, track by_src, count 20, seconds 5; \
-    classtype:attempted-recon; sid:9000001; rev:1; \
+    classtype:attempted-recon; sid:9000001; rev:2; \
     metadata:mitre_technique_id T1046; )
 
-# T1190 — Exploit Public-Facing Application (sqlmap signature in HTTP).
+# ---- T1190 Exploit Public-Facing Application (sqlmap) ----------------------------------
 alert http any any -> $HOME_NET any ( \
-    msg:"LAB T1190 sqlmap user-agent"; http.user_agent; content:"sqlmap"; nocase; \
-    classtype:web-application-attack; sid:9000002; rev:1; \
+    msg:"LAB T1190 sqlmap user-agent"; flow:established,to_server; \
+    http.user_agent; content:"sqlmap"; nocase; \
+    classtype:web-application-attack; sid:9000002; rev:2; \
     metadata:mitre_technique_id T1190; )
 
-# T1595.003 — Wordlist Scanning (content-discovery tools).
+# ---- T1595.003 Wordlist Scanning (gobuster / ffuf / feroxbuster / dirb / wfuzz) --------
 alert http any any -> $HOME_NET any ( \
-    msg:"LAB T1595.003 content discovery tool"; http.user_agent; \
-    pcre:"/gobuster|ffuf|feroxbuster|dirb/i"; \
-    classtype:web-application-activity; sid:9000003; rev:1; \
+    msg:"LAB T1595.003 content discovery tool"; flow:established,to_server; \
+    http.user_agent; pcre:"/gobuster|ffuf|feroxbuster|dirb|wfuzz/i"; \
+    classtype:web-application-activity; sid:9000003; rev:2; \
     metadata:mitre_technique_id T1595.003; )
 
-# T1190 — classic SQLi tautology in a URI.
+# ---- T1190 SQLi tautology in URI (' OR '1'='1, ' or 1=1--; plain or %-encoded) ---------
 alert http any any -> $HOME_NET any ( \
-    msg:"LAB T1190 SQLi tautology in URI"; http.uri; content:"' OR '1'='1"; nocase; \
-    classtype:web-application-attack; sid:9000004; rev:1; \
+    msg:"LAB T1190 SQLi tautology in URI"; flow:established,to_server; \
+    http.uri; pcre:"/(?:'|%27)(?:\s|\+|%20)*or(?:\s|\+|%20)+(?:'|%27)?\w+(?:'|%27)?(?:\s|\+|%20)*=(?:\s|\+|%20)*(?:'|%27)?\w+/i"; \
+    classtype:web-application-attack; sid:9000004; rev:2; \
     metadata:mitre_technique_id T1190; )
+
+# ---- T1190 SQLi UNION SELECT in URI ----------------------------------------------------
+alert http any any -> $HOME_NET any ( \
+    msg:"LAB T1190 SQLi UNION SELECT in URI"; flow:established,to_server; \
+    http.uri; pcre:"/union(?:\s|\+|%20|\/\*.*?\*\/)+(?:all(?:\s|\+|%20)+)?select/i"; \
+    classtype:web-application-attack; sid:9000005; rev:1; \
+    metadata:mitre_technique_id T1190; )
+
+# ---- T1190 SQLi tautology / UNION SELECT in request body (Juice Shop login is JSON POST) --
+alert http any any -> $HOME_NET any ( \
+    msg:"LAB T1190 SQLi pattern in request body"; flow:established,to_server; \
+    http.request_body; \
+    pcre:"/'\s*or\s*'?\w+'?\s*=\s*'?\w+|union(?:\s|\/\*.*?\*\/)+(?:all\s+)?select/i"; \
+    classtype:web-application-attack; sid:9000007; rev:1; \
+    metadata:mitre_technique_id T1190; )
+
+# ---- T1110 Brute Force: repeated login attempts (>=5 POSTs in 30s from one source) ------
+alert http any any -> $HOME_NET any ( \
+    msg:"LAB T1110 repeated login attempts (brute force)"; flow:established,to_server; \
+    http.method; content:"POST"; http.uri; content:"/rest/user/login"; nocase; \
+    threshold:type both, track by_src, count 5, seconds 30; \
+    classtype:attempted-user; sid:9000006; rev:1; \
+    metadata:mitre_technique_id T1110; )
+
+# ---- T1110 Brute Force: hydra user-agent -----------------------------------------------
+alert http any any -> $HOME_NET any ( \
+    msg:"LAB T1110 hydra user-agent"; flow:established,to_server; \
+    http.user_agent; content:"Hydra"; nocase; \
+    classtype:attempted-user; sid:9000008; rev:1; \
+    metadata:mitre_technique_id T1110; )
+
+# ---- T1595.003 High-rate HTTP requests (tool-agnostic content discovery / fuzzing) ------
+# >=60 requests in 10s from one source. Catches ffuf/gobuster even with a spoofed UA.
+alert http any any -> $HOME_NET any ( \
+    msg:"LAB T1595.003 high-rate HTTP requests (content discovery)"; flow:established,to_server; \
+    http.method; content:"GET"; \
+    threshold:type both, track by_src, count 60, seconds 10; \
+    classtype:web-application-activity; sid:9000009; rev:1; \
+    metadata:mitre_technique_id T1595.003; )

@@ -1,5 +1,5 @@
 {
-  "name": "2026-11-23T04-08-02Z_ornith-9b_juice-shop",
+  "name": "2026-11-23T04-46-30Z_ornith-9b_juice-shop",
   "versions": {
     "layer": "4.5",
     "navigator": "4.9.1"
@@ -11,6 +11,18 @@
       "techniqueID": "T1046",
       "score": 1,
       "comment": "Network Service Discovery",
+      "color": "#e60d0d"
+    },
+    {
+      "techniqueID": "T1083",
+      "score": 1,
+      "comment": "File and Directory Discovery",
+      "color": "#e60d0d"
+    },
+    {
+      "techniqueID": "T1190",
+      "score": 1,
+      "comment": "Exploit Public-Facing Application",
       "color": "#e60d0d"
     }
   ],

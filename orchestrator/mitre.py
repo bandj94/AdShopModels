@@ -12,11 +12,14 @@ from dataclasses import dataclass
 # (regex over the command, ATT&CK technique id, technique name, kill-chain phase)
 _RULES: list[tuple[re.Pattern[str], str, str, str]] = [
     (re.compile(r"\bnmap\b|\bmasscan\b|\bping\b|\bnetcat -z|\bnc -z"), "T1046", "Network Service Discovery", "discovery"),
-    (re.compile(r"\bwhatweb\b|\bnikto\b|\bwpscan\b|curl .*-I\b"), "T1595", "Active Scanning", "reconnaissance"),
+    (re.compile(r"\bwhatweb\b|\bnikto\b|\bwpscan\b"), "T1595", "Active Scanning", "reconnaissance"),
     (re.compile(r"\bgobuster\b|\bffuf\b|\bwfuzz\b|\bdirb\b"), "T1595.003", "Wordlist Scanning", "reconnaissance"),
     (re.compile(r"\bsqlmap\b|union select|' or '1'='1|%27"), "T1190", "Exploit Public-Facing Application", "initial-access"),
     (re.compile(r"\bhydra\b|\bmedusa\b|\bpatator\b|brute"), "T1110", "Brute Force", "credential-access"),
-    (re.compile(r"cat .*/etc/passwd|cat .*shadow|\bid\b|\bwhoami\b|\buname\b"), "T1033", "System Owner/User Discovery", "discovery"),
+    # `id` only as an INVOKED command (start, after a ; & separator, or `sudo id`) — a bare
+    # \bid\b also matches id in URLs (?id=1) and grep alternations ("(user|id)"), both false
+    # positives seen in real runs.
+    (re.compile(r"cat .*/etc/passwd|cat .*shadow|(?:^|[;&]\s*|\bsudo\s+)id\b|\bwhoami\b|\buname\b"), "T1033", "System Owner/User Discovery", "discovery"),
     (re.compile(r"\bnc\b .*-e|/bin/sh|/bin/bash -i|reverse shell|mkfifo"), "T1059", "Command and Scripting Interpreter", "execution"),
     (re.compile(r"\bcat\b .*flag|find .*flag|grep .*flag"), "T1083", "File and Directory Discovery", "discovery"),
 ]
