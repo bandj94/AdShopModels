@@ -29,6 +29,14 @@ _FQDN_RE = re.compile(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b
 
 _ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
+# Shell stage separators — a command is split on these so each pipeline/list stage can be
+# attributed to its own binary. `||`/`&&` are listed before `|`/`&` so the longer form wins.
+_SEGMENT_SPLIT_RE = re.compile(r"\|\||&&|;|\||&")
+
+# A URL token (scheme://…). Its host is validated on its own; the rest (path, query) must not be
+# re-scanned for bare hostnames, or a dotted filename like `/ftp/eastere.gg` looks like a host.
+_URL_RE = re.compile(r"\w+://[^\s'\"]+")
+
 # Tools that take a host/URL as an argument — only these trigger the bare-hostname scan,
 # so `cat config.yaml` is never mistaken for a network call.
 _NETWORK_TOOLS = {
@@ -124,7 +132,7 @@ class SafetyGuard:
             return Decision(False, "could not determine command binary")
 
         # (3) Scope lock — hostnames (URLs always; bare FQDNs only for network tools).
-        host_violation = self._check_hosts(cmd, binary)
+        host_violation = self._check_hosts(cmd)
         if host_violation is not None:
             return Decision(False, host_violation)
 
@@ -136,8 +144,8 @@ class SafetyGuard:
 
     # ----------------------------------------------------------------- internals
 
-    def _check_hosts(self, cmd: str, binary: str) -> str | None:
-        # Hosts inside URLs are unambiguous egress intent — always checked.
+    def _check_hosts(self, cmd: str) -> str | None:
+        # Hosts inside URLs are unambiguous egress intent — always checked, across the whole line.
         for token in self._tokens(cmd):
             if "://" in token:
                 host = (urlparse(token).hostname or "").lower()
@@ -145,15 +153,26 @@ class SafetyGuard:
                     continue
                 if not self._host_in_scope(host):
                     return f"out-of-scope host in URL: {host}"
-        # Bare FQDNs (e.g. `nslookup evil.example.com`) only matter for network tools,
-        # and file-extension-looking labels (notes.txt) are ignored.
-        if binary.lower() in _NETWORK_TOOLS:
-            for m in _FQDN_RE.finditer(cmd):
+        # Bare FQDNs (e.g. `nslookup evil.example.com`) only matter as *network targets*, so scan
+        # only the pipeline segments whose OWN binary is a network tool. This keeps a later stage
+        # like `... | python3 -c "d=json.load(sys.stdin)"` from being misread as a call to a host
+        # named `json.load` — the previous whole-command scan, gated on the first binary alone,
+        # flagged exactly that and wasted the step.
+        for segment in self._segments(cmd):
+            seg_binary = self._binary_of(segment)
+            if seg_binary is None or seg_binary.lower() not in _NETWORK_TOOLS:
+                continue
+            # Blank out URL tokens (keeping offsets) before the bare-FQDN scan: a URL's host is
+            # already validated above, and a dotted *filename* in the URL path (e.g.
+            # `/ftp/eastere.gg`) is not a network target — scanning it flagged `eastere.gg` as an
+            # out-of-scope host and wasted the step in the live Flash-Next run.
+            scan = _URL_RE.sub(lambda m: " " * len(m.group(0)), segment)
+            for m in _FQDN_RE.finditer(scan):
                 # Skip an email-style domain inside a payload (e.g. -d "email=admin@juiceshop.com"):
                 # the preceding '@' means it's a login value, not a network target. Real egress
                 # hosts are still caught — the URL scan above handles `://host`, and a bare
                 # out-of-scope FQDN (e.g. `nslookup evil.example.com`) has no leading '@'.
-                if m.start() > 0 and cmd[m.start() - 1] == "@":
+                if m.start() > 0 and scan[m.start() - 1] == "@":
                     continue
                 host = m.group(0).lower()
                 if host.rsplit(".", 1)[-1] in _IGNORED_TLDS:
@@ -173,6 +192,13 @@ class SafetyGuard:
             pass
         # Unknown DNS name -> treat as potential egress -> out of scope.
         return False
+
+    @staticmethod
+    def _segments(cmd: str) -> list[str]:
+        """Split a command into shell stages (pipeline / list) so each can be attributed to its
+        own binary. Operators inside quotes are rarely stage separators for the web commands this
+        lab issues; the IP, deny, and `://` URL checks still scan the whole line regardless."""
+        return [s for s in _SEGMENT_SPLIT_RE.split(cmd) if s.strip()]
 
     @staticmethod
     def _tokens(cmd: str) -> list[str]:

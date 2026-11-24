@@ -54,6 +54,25 @@ def test_parse_action_variants() -> None:
     assert parse_action("$ whoami") == "whoami"
 
 
+def test_parse_action_strips_think_block() -> None:
+    # Reasoning models emit <think>…</think> then the command; the think prose must be ignored.
+    reply = "<think>The target is Juice Shop. I should enumerate the API first.</think>\nCMD: curl -s http://10.13.37.20:3000/api/products"
+    assert parse_action(reply) == "curl -s http://10.13.37.20:3000/api/products"
+
+
+def test_parse_action_takes_last_cmd_when_model_reconsiders() -> None:
+    reply = "CMD: nmap 10.13.37.20\nActually, recon the web root first.\nCMD: curl http://10.13.37.20:3000/"
+    assert parse_action(reply) == "curl http://10.13.37.20:3000/"
+
+
+def test_parse_action_rejects_reasoning_only_reply() -> None:
+    # Regression: a reply that is all commentary (no CMD) must yield "" — NOT the prose line run
+    # as a command (the v3 bake-off blocked `Thought: …` as "binary not in allow list").
+    assert parse_action("Thought: This is OWASP Juice Shop; the flag is usually in the DB.") == ""
+    assert parse_action("Reasoning: let me think about the JWT.\nNote: no token yet.") == ""
+    assert parse_action("") == ""
+
+
 def test_goal_met() -> None:
     assert goal_met("output was flag{abc}")
     assert not goal_met("nothing interesting here")
@@ -78,6 +97,26 @@ def test_full_loop_captures_flag(tmp_path: Path) -> None:
     for artifact in ("transcript.jsonl", "report.md", "attack-layer.json", "run.json"):
         assert (rd / artifact).exists(), artifact
     assert len((rd / "transcript.jsonl").read_text(encoding="utf-8").strip().splitlines()) == 2
+
+
+def test_loop_reasks_once_on_empty_command(tmp_path: Path) -> None:
+    # A reasoning-only reply should trigger ONE re-ask for the command, not burn the step on an
+    # empty block. Here step 1's first reply has no command; the re-ask supplies one.
+    cfg = _cfg(tmp_path)
+    llm = ScriptedLLM(
+        [
+            "<think>I need to look at the flag file.</think>",   # parses to "" -> re-ask
+            "CMD: cat /flag.txt",                                 # the re-ask reply
+        ]
+    )
+    res = run_agent(cfg, runs_dir=tmp_path / "runs", executor=FakeExecutor(), llm=llm, verbose=False)
+    recs = [
+        json.loads(ln)
+        for ln in (Path(res.run_dir) / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert res.goal_met and res.steps == 1
+    assert recs[0]["blocked"] is False and recs[0]["command"] == "cat /flag.txt"
+    assert "[empty — re-asked]" in recs[0]["action_raw"]
 
 
 def test_loop_blocks_out_of_scope(tmp_path: Path) -> None:

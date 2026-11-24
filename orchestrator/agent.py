@@ -25,6 +25,16 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 _CMD_RE = re.compile(r"^\s*cmd:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 _FENCE_RE = re.compile(r"```(?:[a-zA-Z0-9]*)\s*\n(.*?)```", re.S)
+# Reasoning models (Qwen / Flash-Next) wrap their chain-of-thought in <think>…</think>; the
+# command comes after it. Strip the block so its prose is never mistaken for the command.
+_THINK_RE = re.compile(r"<think\b[^>]*>.*?</think>", re.S | re.IGNORECASE)
+# Lines that are commentary, not a command — used to reject prose in the last-resort fallback so
+# a reply that is all reasoning yields "" (a clean skip) instead of e.g. `Thought: …` being run
+# as a command and blocked as "binary not in allow list: 'Thought:'".
+_PROSE_RE = re.compile(
+    r"^\s*(thought|thoughts|reasoning|analysis|note|notes|plan|observation|answer|action|command|step|next)\b\s*[:\-]",
+    re.IGNORECASE,
+)
 
 
 # ------------------------------------------------------------------ pure helpers
@@ -38,22 +48,40 @@ def _clean(s: str) -> str:
 
 
 def parse_action(text: str) -> str:
-    """Extract the single command from a model reply. Tolerant of common formats."""
-    m = _CMD_RE.search(text)
-    if m:
-        return _clean(m.group(1))
-    m = _FENCE_RE.search(text)
-    if m:
-        first = next((ln for ln in m.group(1).splitlines() if ln.strip()), "")
-        if first:
-            return _clean(first)
-    for line in text.splitlines():
-        low = line.strip().lower()
-        if low.startswith(("action:", "command:")):
-            return _clean(line.split(":", 1)[1])
-    for line in text.splitlines():
-        if line.strip():
-            return _clean(line)
+    """Extract the single command from a model reply. Tolerant of common formats, and robust to
+    reasoning-model output: it drops <think> blocks and never returns commentary as a command."""
+    if not text:
+        return ""
+    # Drop the chain-of-thought; the command comes after it.
+    body = _THINK_RE.sub("", text)
+
+    # Structured markers are unambiguous, so look for them in the think-stripped body first, then
+    # in the raw text (a command very occasionally sits inside a think block). If the model
+    # reasons and then commits, the LAST CMD: line is its decision.
+    for source in (body, text):
+        cmds = _CMD_RE.findall(source)
+        if cmds:
+            return _clean(cmds[-1])
+        m = _FENCE_RE.search(source)
+        if m:
+            first = next((ln for ln in m.group(1).splitlines() if ln.strip()), "")
+            if first:
+                return _clean(first)
+        for line in source.splitlines():
+            low = line.strip().lower()
+            if low.startswith(("action:", "command:")):
+                return _clean(line.split(":", 1)[1])
+
+    # Last resort: the first non-empty line of the think-STRIPPED body that is a command, not
+    # commentary and not a leftover tag. Never scan raw think prose here — a reasoning-only reply
+    # must parse to "" so the loop can re-ask instead of running the prose as a command.
+    for line in body.splitlines():
+        s = line.strip()
+        if not s or s.startswith("<") or _PROSE_RE.match(s):
+            continue
+        cleaned = _clean(line)
+        if cleaned and not cleaned.startswith("<") and not _PROSE_RE.match(cleaned):
+            return cleaned
     return ""
 
 
@@ -146,6 +174,16 @@ def run_agent(
         )
         action_raw = llm.chat([{"role": "system", "content": system}, {"role": "user", "content": user}])
         command = parse_action(action_raw)
+
+        if not command:
+            # A reasoning-only or truncated reply parses to nothing. Re-ask ONCE for just the
+            # command rather than burning the step on an empty block — this was the single most
+            # common wasted step in the v3 bake-off transcripts. One retry only, so a stubborn
+            # model can never stall the loop.
+            retry_user = user + "\n\nReply with ONLY the next command as a single `CMD:` line — no reasoning."
+            retry_raw = llm.chat([{"role": "system", "content": system}, {"role": "user", "content": retry_user}])
+            command = parse_action(retry_raw)
+            action_raw = f"{action_raw}\n\n[empty — re-asked]\n{retry_raw}"
 
         decision = guard.allow_command(command, step)
         if not decision.permitted:

