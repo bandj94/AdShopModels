@@ -16,6 +16,11 @@ keys/
 !/runs/sample-run/
 !/runs/.gitkeep
 
+# ---- Model bake-off output ----
+# Ignore raw per-run comparison output, keep one committed sample.
+/comparisons/*
+!/comparisons/sample-bakeoff/
+
 # ---- Python ----
 __pycache__/
 *.py[cod]

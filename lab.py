@@ -36,6 +36,17 @@ LABNET = "labnet"  # explicit network name set in compose; isolated, no egress
 # --------------------------------------------------------------------- helpers
 
 
+def _force_utf8_streams() -> None:
+    """Encode console output as UTF-8 so the markdown we print (box/emoji glyphs ⬜ ✅ ⚠️ in the
+    bake-off leaderboard) survives a piped stdout, which on Windows defaults to cp1252 — a strict
+    encode of those glyphs there raises UnicodeEncodeError and takes the whole command down."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass  # not a reconfigurable TextIOWrapper (already wrapped/redirected) — leave as-is
+
+
 def _load_dotenv() -> None:
     envf = ROOT / ".env"
     if not envf.exists():
@@ -342,6 +353,7 @@ def cmd_down(_args) -> int:
 
 
 def main() -> int:
+    _force_utf8_streams()  # before any print: the leaderboard uses glyphs cp1252 can't encode
     _load_dotenv()
     parser = argparse.ArgumentParser(prog="lab.py", description="LLM Adversary Lab control surface")
     sub = parser.add_subparsers(dest="command", required=True)

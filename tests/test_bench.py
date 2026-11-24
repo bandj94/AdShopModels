@@ -6,7 +6,12 @@ score_transcript, the refusal/parse-failure heuristics, rank order, and report r
 
 from __future__ import annotations
 
+import inspect
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 from orchestrator.bench import (
     ModelSpec,
@@ -180,3 +185,35 @@ def test_modelspec_llm_config_uses_alias_as_model():
                      temperature=0.6, max_tokens=2048)
     llm = spec.llm_config()
     assert llm.model == "ornith-35b" and llm.endpoint.endswith("8080/v1") and llm.temperature == 0.6
+
+
+# ------------------------------------------------------------------ console encoding (CLI boundary)
+
+_REPO = Path(__file__).resolve().parents[1]
+
+
+def test_leaderboard_prints_on_cp1252_stdout():
+    """Regression (Windows): a piped stdout defaults to cp1252, and the leaderboard's box glyph
+    U+2B1C made a strict encode crash the whole `compare` command at the final print (exit 1).
+    lab._force_utf8_streams() switches the streams to UTF-8; forcing PYTHONIOENCODING=cp1252
+    reproduces the original condition on any OS, so this guards the fix in CI (Linux) too."""
+    prog = (
+        "import lab\n"
+        "from orchestrator.bench import ScoreCard, leaderboard_md\n"
+        "lab._force_utf8_streams()\n"
+        "print(leaderboard_md([ScoreCard(alias='m', goal_met=False, steps=1, elapsed_s=1.0)]))\n"
+    )
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    r = subprocess.run([sys.executable, "-c", prog], cwd=_REPO, env=env, capture_output=True)
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    assert "no flag" in r.stdout.decode("utf-8")
+
+
+def test_force_utf8_is_wired_into_cli_main():
+    """Guard the WIRING, not just the function: the leaderboard glyph only reaches stdout through
+    cmd_compare's print under main(), so main() must actually call _force_utf8_streams(). The
+    cp1252 test above proves the function works; this one fails if the call is dropped from main()."""
+    import lab
+
+    src = inspect.getsource(lab.main)
+    assert "_force_utf8_streams()" in src
